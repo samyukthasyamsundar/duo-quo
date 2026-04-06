@@ -50,8 +50,10 @@ templates = Jinja2Templates(directory="templates")
 def minutes_left(expires_at: datetime.datetime) -> int:
     return max(0, int((expires_at - datetime.datetime.utcnow()).total_seconds() / 60))
 
-templates.env.globals["minutes_left"]   = minutes_left
-templates.env.globals["CATEGORY_META"]  = CATEGORY_META
+# Pass these in every template context via the helper below
+def ctx(request, **kwargs):
+    return {"request": request, "CATEGORY_META": CATEGORY_META,
+            "minutes_left": minutes_left, **kwargs}
 
 # ── Email ─────────────────────────────────────────────────────────────────────
 def send_otp_email(to_email: str, code: str):
@@ -148,7 +150,7 @@ def expire_old_posts(db: Session):
 async def login_get(request: Request):
     if request.session.get("user_id"):
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", ctx(request))
 
 @app.post("/login")
 async def login_post(
@@ -159,10 +161,9 @@ async def login_post(
     email = email.strip().lower()
 
     if not email.endswith(f"@{CAMPUS_DOMAIN}"):
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": f"Must use a @{CAMPUS_DOMAIN} email address."
-        }, status_code=400)
+        return templates.TemplateResponse("login.html",
+            ctx(request, error=f"Must use a @{CAMPUS_DOMAIN} email address."),
+            status_code=400)
 
     # Invalidate old unused codes for this email
     db.query(models.OTPCode).filter(
@@ -188,10 +189,9 @@ async def login_post(
             raise
     except Exception as e:
         print(f"Email error: {e}")
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Failed to send email. Check SMTP settings in .env"
-        }, status_code=500)
+        return templates.TemplateResponse("login.html",
+            ctx(request, error="Failed to send email. Check SMTP settings in .env"),
+            status_code=500)
 
     request.session["pending_email"] = email
     if dev_code:
@@ -204,10 +204,8 @@ async def verify_get(request: Request, dev: str = ""):
     email = request.session.get("pending_email")
     if not email:
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse("verify.html", {
-        "request": request, "email": email,
-        "dev_code": dev if dev else None,
-    })
+    return templates.TemplateResponse("verify.html",
+        ctx(request, email=email, dev_code=dev if dev else None))
 
 @app.post("/verify")
 async def verify_post(
@@ -227,10 +225,9 @@ async def verify_post(
     ).first()
 
     if not otp:
-        return templates.TemplateResponse("verify.html", {
-            "request": request, "email": email,
-            "error": "Invalid or expired code. Try again."
-        }, status_code=400)
+        return templates.TemplateResponse("verify.html",
+            ctx(request, email=email, error="Invalid or expired code. Try again."),
+            status_code=400)
 
     otp.used = True
     db.commit()
@@ -255,9 +252,8 @@ async def setup_get(request: Request):
     email = request.session["verified_email"]
     # Pre-fill username from email prefix
     suggested = email.split("@")[0]
-    return templates.TemplateResponse("setup.html", {
-        "request": request, "email": email, "suggested": suggested
-    })
+    return templates.TemplateResponse("setup.html",
+        ctx(request, email=email, suggested=suggested))
 
 @app.post("/setup")
 async def setup_post(
@@ -271,18 +267,14 @@ async def setup_post(
 
     username = username.strip()
     if len(username) < 3 or len(username) > 30:
-        return templates.TemplateResponse("setup.html", {
-            "request": request, "email": email,
-            "suggested": username,
-            "error": "Username must be 3–30 characters."
-        }, status_code=400)
+        return templates.TemplateResponse("setup.html",
+            ctx(request, email=email, suggested=username,
+                error="Username must be 3–30 characters."), status_code=400)
 
     if db.query(models.User).filter(models.User.username == username).first():
-        return templates.TemplateResponse("setup.html", {
-            "request": request, "email": email,
-            "suggested": username,
-            "error": "That username is taken. Try another."
-        }, status_code=400)
+        return templates.TemplateResponse("setup.html",
+            ctx(request, email=email, suggested=username,
+                error="That username is taken. Try another."), status_code=400)
 
     user = models.User(email=email, username=username)
     db.add(user); db.commit(); db.refresh(user)
@@ -323,14 +315,10 @@ async def feed(request: Request, category: str = "", db: Session = Depends(get_d
             "connection_id": conn.id if conn else None,
         })
 
-    return templates.TemplateResponse("index.html", {
-        "request": request, "user": user,
-        "posts_data": posts_data,
-        "active_category": category,
-        "categories": CATEGORY_META,
-        "require_geo": REQUIRE_GEOLOCATION,
-        "campus_bounds": CAMPUS_BOUNDS,
-    })
+    return templates.TemplateResponse("index.html",
+        ctx(request, user=user, posts_data=posts_data,
+            active_category=category, categories=CATEGORY_META,
+            require_geo=REQUIRE_GEOLOCATION, campus_bounds=CAMPUS_BOUNDS))
 
 # ── Create Post ───────────────────────────────────────────────────────────────
 @app.post("/post")
@@ -427,12 +415,10 @@ async def chat_page(conn_id: int, request: Request, db: Session = Depends(get_db
                conn.post.expires_at <= datetime.datetime.utcnow())
     other = conn.joiner if user.id == conn.post.user_id else conn.post.author
 
-    return templates.TemplateResponse("chat.html", {
-        "request": request, "user": user,
-        "conn": conn, "messages": conn.messages, "other_user": other,
-        "expired": expired, "categories": CATEGORY_META,
-        "minutes_left": minutes_left(conn.post.expires_at) if not expired else 0,
-    })
+    return templates.TemplateResponse("chat.html",
+        ctx(request, user=user, conn=conn, messages=conn.messages,
+            other_user=other, expired=expired, categories=CATEGORY_META,
+            minutes_left=minutes_left(conn.post.expires_at) if not expired else 0))
 
 # ── WebSocket: Feed ───────────────────────────────────────────────────────────
 @app.websocket("/ws/feed")
