@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Verify – Duo Queue{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="brand-icon-lg">📬</span>
+      <h1 class="auth-title">Check your email</h1>
+      <p class="auth-sub">We sent a 6-digit code to<br><strong>{{ email }}</strong></p>
+    </div>
+
+    {% if dev_code %}
+    <div class="dev-banner">
+      <p>No SMTP configured — here's your code:</p>
+      <div class="dev-code">{{ dev_code }}</div>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/verify" class="auth-form">
+      <div class="field">
+        <label>Verification Code</label>
+        <input type="text" name="code"
+               value="{{ dev_code or '' }}"
+               placeholder="000000"
+               maxlength="6" pattern="[0-9]{6}" inputmode="numeric"
+               required autocomplete="one-time-code" autofocus
+               style="font-size:1.5rem;letter-spacing:.4em;text-align:center;" />
+      </div>
+      <button type="submit" class="btn-primary btn-full">Verify →</button>
+    </form>
+
+    <p class="auth-footer">
+      Wrong email? <a href="/login">Go back</a>
+      &nbsp;·&nbsp; Expires in 10 minutes.
+    </p>
+
+    {% if dev_code %}
+    <p class="auth-footer" style="font-size:.75rem;margin-top:.5rem;">
+      To send real emails, add SMTP settings to <code style="color:#555">.env</code>
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

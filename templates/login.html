@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Sign In – Duo Queue{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="brand-icon-lg">⚡</span>
+      <h1 class="auth-title">Duo Queue</h1>
+      <p class="auth-sub">Find someone to do things with — right now.</p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="auth-form">
+      <div class="field">
+        <label>Purdue Email</label>
+        <input type="email" name="email" placeholder="yourname@purdue.edu"
+               required autocomplete="email" autofocus />
+      </div>
+      <button type="submit" class="btn-primary btn-full">Send Verification Code →</button>
+    </form>
+
+    <div class="auth-note">
+      <span class="lock-icon">🔒</span>
+      Verification code sent to your Purdue email. No password needed.
+    </div>
+  </div>
+</div>
+{% endblock %}

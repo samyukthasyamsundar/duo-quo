@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Pick a Username – Duo Queue{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="brand-icon-lg">👤</span>
+      <h1 class="auth-title">One last step</h1>
+      <p class="auth-sub">Pick a display name for <strong>{{ email }}</strong></p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/setup" class="auth-form">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" name="username" value="{{ suggested }}"
+               placeholder="boilermaker42" minlength="3" maxlength="30"
+               required autofocus autocomplete="off" />
+        <span style="font-size:.78rem;color:var(--muted);">3–30 characters, shown on posts</span>
+      </div>
+      <button type="submit" class="btn-primary btn-full">Join Duo Queue →</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

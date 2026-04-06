@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Duo Queue{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% if user is defined and user %}
+  <nav class="navbar">
+    <a href="/" class="nav-brand">
+      <span class="brand-icon">⚡</span>
+      <span class="brand-text">Duo Queue</span>
+    </a>
+    <div class="nav-right">
+      <span class="nav-user">@{{ user.username }}</span>
+      <a href="/logout" class="btn-ghost">Sign out</a>
+    </div>
+  </nav>
+  {% endif %}
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

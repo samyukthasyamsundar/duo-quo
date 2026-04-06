@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Feed – Duo Queue{% endblock %}
+
+{% block content %}
+<div class="feed-layout">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+      <p class="sidebar-heading">Activity</p>
+      <nav class="cat-nav">
+        <a href="/" class="cat-item {% if not active_category %}active{% endif %}">
+          <span class="cat-icon">🔥</span> All
+        </a>
+        {% for key, meta in categories.items() %}
+        <a href="/?category={{ key }}"
+           class="cat-item {% if active_category == key %}active{% endif %}"
+           style="--cat-color: {{ meta.color }}">
+          <span class="cat-icon">{{ meta.icon }}</span> {{ meta.label }}
+        </a>
+        {% endfor %}
+      </nav>
+
+      <div class="sidebar-divider"></div>
+      <div class="campus-badge">
+        <span class="campus-dot"></span>
+        <span>Purdue University</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Feed ── -->
+  <section class="feed-section">
+    <div class="feed-header">
+      <div>
+        <h2 class="feed-title">
+          {% if active_category %}
+            {{ categories[active_category].icon }} {{ categories[active_category].label }}
+          {% else %}
+            Live Feed
+          {% endif %}
+        </h2>
+        <p class="feed-sub">Posts expire in 30 minutes · Real people, right now</p>
+      </div>
+      <button class="btn-primary" id="openPostBtn">+ New Post</button>
+    </div>
+
+    <!-- Posts -->
+    <div class="posts-grid" id="postsGrid">
+      {% if not posts_data %}
+      <div class="empty-state">
+        <div class="empty-icon">👀</div>
+        <p>Nothing posted yet.</p>
+        <p class="empty-sub">Be the first to put something out there.</p>
+      </div>
+      {% endif %}
+
+      {% for item in posts_data %}
+      {% set p = item.post %}
+      {% set meta = categories[p.category] %}
+      <div class="post-card" data-id="{{ p.id }}" style="--cat-color: {{ meta.color }}">
+        <div class="post-top">
+          <span class="cat-pill">{{ meta.icon }} {{ meta.label }}</span>
+          <span class="post-timer" data-expires="{{ p.expires_at.isoformat() }}">
+            {{ minutes_left(p.expires_at) }}m left
+          </span>
+        </div>
+
+        <p class="post-content">{{ p.content }}</p>
+
+        <div class="post-bottom">
+          <span class="post-author">@{{ p.author.username }}</span>
+          <div class="post-actions">
+            {% if item.is_mine %}
+              <span class="post-join-count">{{ item.join_count }} joined</span>
+              <form method="post" action="/post/{{ p.id }}/delete" style="display:inline">
+                <button type="submit" class="btn-delete" title="Remove post">✕</button>
+              </form>
+            {% elif item.already_joined %}
+              <a href="/chat/{{ item.connection_id }}" class="btn-chat">💬 Open Chat</a>
+            {% else %}
+              <form method="post" action="/post/{{ p.id }}/join" style="display:inline">
+                <button type="submit" class="btn-join">Join →</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<!-- ── New Post Modal ── -->
+<div class="modal-overlay" id="postModal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Post an Activity</h3>
+      <button class="modal-close" id="closePostBtn">✕</button>
+    </div>
+
+    <form method="post" action="/post" id="postForm">
+      <input type="hidden" name="latitude"  id="latInput" />
+      <input type="hidden" name="longitude" id="lonInput" />
+
+      <div class="field">
+        <label>Category</label>
+        <div class="cat-grid">
+          {% for key, meta in categories.items() %}
+          <label class="cat-radio">
+            <input type="radio" name="category" value="{{ key }}"
+                   {% if loop.first %}checked{% endif %} />
+            <span class="cat-radio-label" style="--cat-color: {{ meta.color }}">
+              {{ meta.icon }} {{ meta.label }}
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="field">
+        <label>What's the plan? <span class="char-count" id="charCount">0/120</span></label>
+        <textarea name="content" id="postContent" rows="3"
+                  placeholder='e.g. "Gym in 20 min, anyone?" or "Studying CNIT 271 at WALC"'
+                  maxlength="120" required></textarea>
+      </div>
+
+      <div class="geo-status" id="geoStatus"></div>
+
+      <button type="submit" class="btn-primary btn-full" id="submitPost">
+        Post (expires in 30 min)
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const REQUIRE_GEO = {{ 'true' if require_geo else 'false' }};
+const CAMPUS_BOUNDS = {{ campus_bounds | tojson }};
+const CURRENT_USER_ID = {{ user.id }};
+
+// ── Modal ──────────────────────────────────────────────────────────────────
+const modal   = document.getElementById('postModal');
+const openBtn = document.getElementById('openPostBtn');
+const closeBtn= document.getElementById('closePostBtn');
+
+openBtn.addEventListener('click', () => {
+  modal.classList.add('open');
+  if (REQUIRE_GEO || navigator.geolocation) getLocation();
+});
+closeBtn.addEventListener('click', () => modal.classList.remove('open'));
+modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+
+// ── Char counter ───────────────────────────────────────────────────────────
+const ta = document.getElementById('postContent');
+const cc = document.getElementById('charCount');
+ta.addEventListener('input', () => {
+  cc.textContent = `${ta.value.length}/120`;
+  cc.style.color = ta.value.length > 100 ? '#ef4444' : '';
+});
+
+// ── Geolocation ────────────────────────────────────────────────────────────
+function getLocation() {
+  const status = document.getElementById('geoStatus');
+  if (!navigator.geolocation) {
+    if (REQUIRE_GEO) status.innerHTML = '<span class="geo-err">Geolocation not supported.</span>';
+    return;
+  }
+  status.innerHTML = '<span class="geo-loading">📍 Checking location…</span>';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    document.getElementById('latInput').value = lat;
+    document.getElementById('lonInput').value = lon;
+    const onCampus = lat >= CAMPUS_BOUNDS.min_lat && lat <= CAMPUS_BOUNDS.max_lat
+                  && lon >= CAMPUS_BOUNDS.min_lon && lon <= CAMPUS_BOUNDS.max_lon;
+    if (REQUIRE_GEO && !onCampus) {
+      status.innerHTML = '<span class="geo-err">❌ Must be on campus to post.</span>';
+      document.getElementById('submitPost').disabled = true;
+    } else {
+      status.innerHTML = '<span class="geo-ok">✅ On campus</span>';
+    }
+  }, () => {
+    if (REQUIRE_GEO) {
+      status.innerHTML = '<span class="geo-err">Location denied. Must allow to post.</span>';
+      document.getElementById('submitPost').disabled = true;
+    } else {
+      status.innerHTML = '<span class="geo-warn">📍 Location not shared</span>';
+    }
+  });
+}
+
+// ── Live feed via WebSocket ────────────────────────────────────────────────
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+const ws = new WebSocket(`${proto}://${location.host}/ws/feed`);
+
+ws.addEventListener('message', e => {
+  const data = JSON.parse(e.data);
+  if (data.type !== 'new_post') return;
+  if (data.user_id === CURRENT_USER_ID) return; // already shown via redirect
+
+  const grid = document.getElementById('postsGrid');
+  const empty = grid.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const card = document.createElement('div');
+  card.className = 'post-card post-card--new';
+  card.style.setProperty('--cat-color', data.color);
+  card.innerHTML = `
+    <div class="post-top">
+      <span class="cat-pill">
+        ${data.icon} ${data.label}
+      </span>
+      <span class="post-timer">${data.minutes_left}m left</span>
+    </div>
+    <p class="post-content">${escHtml(data.content)}</p>
+    <div class="post-bottom">
+      <span class="post-author">@${escHtml(data.username)}</span>
+      <div class="post-actions">
+        <form method="post" action="/post/${data.id}/join" style="display:inline">
+          <button type="submit" class="btn-join">Join →</button>
+        </form>
+      </div>
+    </div>`;
+  grid.prepend(card);
+  setTimeout(() => card.classList.remove('post-card--new'), 600);
+});
+
+// keep-alive ping every 25s
+setInterval(() => { if (ws.readyState === 1) ws.send('ping'); }, 25000);
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Countdown timers ───────────────────────────────────────────────────────
+function updateTimers() {
+  document.querySelectorAll('.post-timer[data-expires]').forEach(el => {
+    const exp = new Date(el.dataset.expires + 'Z');
+    const diff = Math.max(0, Math.floor((exp - Date.now()) / 60000));
+    el.textContent = diff + 'm left';
+    if (diff === 0) el.closest('.post-card')?.remove();
+  });
+}
+setInterval(updateTimers, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Chat – Duo Queue{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+  <div class="chat-card">
+
+    <!-- Header -->
+    <div class="chat-header">
+      <a href="/" class="chat-back">← Feed</a>
+      <div class="chat-info">
+        <span class="chat-with">💬 Chat with <strong>@{{ other_user.username }}</strong></span>
+        <span class="chat-topic">{{ categories[conn.post.category].icon }} {{ conn.post.content }}</span>
+      </div>
+      {% if not expired %}
+      <span class="chat-timer" id="chatTimer" data-expires="{{ conn.post.expires_at.isoformat() }}">
+        {{ minutes_left }}m left
+      </span>
+      {% else %}
+      <span class="expired-badge">Expired</span>
+      {% endif %}
+    </div>
+
+    <!-- Messages -->
+    <div class="chat-messages" id="chatMessages">
+      {% if not messages %}
+      <div class="chat-empty">Say hi! 👋</div>
+      {% endif %}
+      {% for msg in messages %}
+      <div class="msg {% if msg.user_id == user.id %}msg--mine{% else %}msg--theirs{% endif %}">
+        <div class="msg-bubble">{{ msg.content }}</div>
+        <div class="msg-meta">
+          @{{ msg.sender.username }} · {{ msg.created_at.strftime('%H:%M') }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Input -->
+    {% if not expired %}
+    <div class="chat-input-wrap">
+      <input type="text" id="msgInput" class="chat-input"
+             placeholder="Type a message…" maxlength="500" autocomplete="off" />
+      <button class="btn-send" id="sendBtn">Send</button>
+    </div>
+    {% else %}
+    <div class="chat-expired-bar">
+      This activity has expired. <a href="/">Back to feed →</a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if not expired %}
+<script>
+const CONN_ID  = {{ conn.id }};
+const USER_ID  = {{ user.id }};
+const USERNAME = {{ user.username | tojson }};
+
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+const ws = new WebSocket(`${proto}://${location.host}/ws/chat/${CONN_ID}`);
+
+const messagesEl = document.getElementById('chatMessages');
+const input      = document.getElementById('msgInput');
+const sendBtn    = document.getElementById('sendBtn');
+
+function scrollBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+scrollBottom();
+
+ws.addEventListener('message', e => {
+  const data = JSON.parse(e.data);
+  if (data.type !== 'message') return;
+  appendMsg(data.username, data.content, data.time, data.user_id === USER_ID);
+});
+
+function appendMsg(username, content, time, mine) {
+  const empty = messagesEl.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = 'msg ' + (mine ? 'msg--mine' : 'msg--theirs');
+  div.innerHTML = `
+    <div class="msg-bubble">${escHtml(content)}</div>
+    <div class="msg-meta">@${escHtml(username)} · ${time}</div>`;
+  messagesEl.appendChild(div);
+  scrollBottom();
+}
+
+function send() {
+  const content = input.value.trim();
+  if (!content || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ user_id: USER_ID, username: USERNAME, content }));
+  input.value = '';
+}
+
+sendBtn.addEventListener('click', send);
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Countdown
+const timerEl = document.getElementById('chatTimer');
+function updateTimer() {
+  if (!timerEl) return;
+  const exp = new Date(timerEl.dataset.expires + 'Z');
+  const diff = Math.max(0, Math.floor((exp - Date.now()) / 60000));
+  timerEl.textContent = diff + 'm left';
+  if (diff === 0) location.reload();
+}
+setInterval(updateTimer, 30000);
+</script>
+{% endif %}
+{% endblock %}
