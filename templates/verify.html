@@ -1,6 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Verify – Duo Queue{% endblock %}
+{% block head %}
+<style>
+.otp-row { display:flex; gap:.55rem; justify-content:center; margin-top:.35rem; }
+.otp-digit {
+  width:48px; height:58px; text-align:center; font-size:1.6rem; font-weight:700;
+  background:var(--s1); border:1.5px solid var(--b2); border-radius:10px;
+  color:var(--t1); font-family:var(--font); caret-color:var(--t1);
+  transition:border-color .15s, box-shadow .15s;
+  -webkit-appearance:none; appearance:none;
+}
+.otp-digit:focus {
+  outline:none; border-color:rgba(255,255,255,.45);
+  box-shadow:0 0 0 3px rgba(255,255,255,.07);
+}
+.otp-digit.filled { border-color:rgba(255,255,255,.25); }
+</style>
+{% endblock %}
 {% block content %}
+
+<div class="auth-backdrop" aria-hidden="true">
+  {% set row1 = ["🏋️ Gym in 20 min, anyone?", "📚 Studying CNIT 271 at WALC", "🍕 Dinner at Ford?", "🚶 Walk around campus", "✨ Anyone up for frisbee?", "🏋️ Rec center — leg day", "📚 CPS finals grind", "🍕 Late night Chipotle run", "🚶 Midnight walk?", "✨ Chess at WALC 3rd floor"] %}
+  {% set row2 = ["📚 Econ group study @ PMU", "🏋️ Open gym, co-rec", "🍕 Thai house, who's in?", "🚶 Bike ride around campus", "✨ Guitar jam session", "🏋️ Morning workout partner", "📚 CES 203 review session", "🍕 Breakfast at Windsor?", "🚶 Sunrise walk", "✨ Spikeball on the lawn"] %}
+  {% set row3 = ["🍕 Anyone grabbing Earhart?", "🏋️ Squash courts at 7pm", "📚 Library 4th floor, join me", "🚶 Engineering fountain loop", "✨ Hammocking at Slayter Hill", "🏋️ Swim laps at Corec", "📚 Stats 350 help session", "🍕 Cook together at the apt", "🚶 Evening run, 5k pace", "✨ Volleyball on the lawn"] %}
+  <div class="backdrop-row" style="--speed:44s">
+    {% for t in row1 %}<span>{{ t }}</span>{% endfor %}
+    {% for t in row1 %}<span>{{ t }}</span>{% endfor %}
+  </div>
+  <div class="backdrop-row backdrop-row--rev" style="--speed:38s">
+    {% for t in row2 %}<span>{{ t }}</span>{% endfor %}
+    {% for t in row2 %}<span>{{ t }}</span>{% endfor %}
+  </div>
+  <div class="backdrop-row" style="--speed:50s">
+    {% for t in row3 %}<span>{{ t }}</span>{% endfor %}
+    {% for t in row3 %}<span>{{ t }}</span>{% endfor %}
+  </div>
+</div>
+
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="auth-logo">
@@ -20,22 +56,32 @@
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="/verify" class="auth-form">
+    <form method="post" action="/verify" class="auth-form" id="verifyForm">
+      <input type="hidden" name="code" id="codeHidden" />
       <div class="field">
-        <label>Verification Code</label>
-        <input type="text" name="code"
-               value="{{ dev_code or '' }}"
-               placeholder="000000"
-               maxlength="6" pattern="[0-9]{6}" inputmode="numeric"
-               required autocomplete="one-time-code" autofocus
-               style="font-size:1.5rem;letter-spacing:.4em;text-align:center;" />
+        <label style="text-align:center;display:block">Verification Code</label>
+        <div class="otp-row" id="otpRow">
+          <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" />
+          <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" />
+          <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" />
+          <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" />
+          <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" />
+          <input class="otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="off" />
+        </div>
       </div>
-      <button type="submit" class="btn-primary btn-full">Verify →</button>
+      <button type="submit" class="btn-primary btn-full" id="verifyBtn" disabled>Verify →</button>
     </form>
+
+    {% if request.query_params.get('resent') %}
+    <div class="alert alert-success" style="margin-top:.75rem">New code sent!</div>
+    {% endif %}
 
     <p class="auth-footer">
       Wrong email? <a href="/login">Go back</a>
-      &nbsp;·&nbsp; Expires in 10 minutes.
+      &nbsp;·&nbsp;
+      <form method="post" action="/resend-otp" style="display:inline">
+        <button type="submit" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:inherit;padding:0;font-family:inherit">Resend code</button>
+      </form>
     </p>
 
     {% if dev_code %}
@@ -45,4 +91,53 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const digits  = Array.from(document.querySelectorAll('.otp-digit'));
+const hidden  = document.getElementById('codeHidden');
+const btn     = document.getElementById('verifyBtn');
+const form    = document.getElementById('verifyForm');
+
+function syncHidden() {
+  const val = digits.map(d => d.value).join('');
+  hidden.value = val;
+  btn.disabled = val.length < 6;
+  digits.forEach((d,i) => d.classList.toggle('filled', !!d.value));
+}
+
+digits.forEach((el, i) => {
+  el.addEventListener('input', () => {
+    el.value = el.value.replace(/\D/g, '').slice(-1);
+    syncHidden();
+    if (el.value && i < 5) digits[i+1].focus();
+  });
+
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && !el.value && i > 0) {
+      digits[i-1].value = '';
+      digits[i-1].focus();
+      syncHidden();
+    }
+    if (e.key === 'ArrowLeft' && i > 0) digits[i-1].focus();
+    if (e.key === 'ArrowRight' && i < 5) digits[i+1].focus();
+  });
+
+  // handle paste on any digit
+  el.addEventListener('paste', e => {
+    e.preventDefault();
+    const pasted = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0,6);
+    pasted.split('').forEach((ch, j) => { if (digits[j]) digits[j].value = ch; });
+    syncHidden();
+    const next = Math.min(pasted.length, 5);
+    digits[next].focus();
+  });
+});
+
+digits[0].focus();
+
+// auto-submit when all 6 filled
+form.addEventListener('input', () => { if (hidden.value.length === 6) form.submit(); });
+</script>
 {% endblock %}

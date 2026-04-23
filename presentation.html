@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Duo Queue — Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#060606; --s0:#0d0d0d; --s1:#141414; --s2:#1c1c1c;
+  --b1:rgba(255,255,255,.07); --b2:rgba(255,255,255,.13);
+  --t1:#ededed; --t2:rgba(237,237,237,.52); --t3:rgba(237,237,237,.27);
+  --green:#4ade80; --amber:#f59e0b; --blue:#60a5fa; --purple:#c4b5fd;
+  --font:'Inter',system-ui,sans-serif;
+  --spring:cubic-bezier(.34,1.56,.64,1);
+  --snappy:cubic-bezier(.22,1,.36,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--t1);-webkit-font-smoothing:antialiased}
+
+/* ── Slide engine ── */
+#deck{position:relative;width:100vw;height:calc(100vh - 0px);overflow:hidden}
+.slide{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:6vh 10vw;
+  opacity:0;pointer-events:none;
+  transform:translateY(20px);
+  transition:opacity .4s var(--snappy),transform .4s var(--snappy);
+}
+.slide.active{opacity:1;pointer-events:all;transform:translateY(0)}
+.slide.exit{opacity:0;transform:translateY(-14px);transition:opacity .25s ease,transform .25s ease}
+
+/* ── Notes panel ── */
+#notes{
+  position:fixed;bottom:0;left:0;right:0;z-index:200;
+  background:rgba(10,10,10,.97);border-top:1px solid var(--b2);
+  padding:1.1rem 2rem 1.4rem;
+  max-height:38vh;overflow-y:auto;
+  transform:translateY(100%);
+  transition:transform .3s var(--snappy);
+}
+#notes.open{transform:translateY(0)}
+#notes p{font-size:.88rem;line-height:1.7;color:var(--t2);max-width:860px;margin:0 auto}
+#notes strong{color:var(--t1)}
+#notes-toggle{
+  position:absolute;top:-32px;left:50%;transform:translateX(-50%);
+  background:rgba(10,10,10,.97);border:1px solid var(--b2);
+  border-bottom:none;border-radius:6px 6px 0 0;
+  padding:.2rem .9rem;font-size:.7rem;color:var(--t3);
+  cursor:pointer;font-family:var(--font);letter-spacing:.05em;
+  transition:color .15s;
+}
+#notes-toggle:hover{color:var(--t1)}
+
+/* ── Nav bar ── */
+#nav{
+  position:fixed;bottom:1.6rem;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:1rem;z-index:100;
+  background:rgba(13,13,13,.9);border:1px solid var(--b2);
+  border-radius:99px;padding:.5rem 1.1rem;backdrop-filter:blur(16px);
+}
+#nav button{
+  background:none;border:none;color:var(--t2);cursor:pointer;
+  font-size:.9rem;padding:.18rem .38rem;border-radius:5px;
+  transition:color .12s,background .12s;font-family:var(--font);
+}
+#nav button:hover{color:var(--t1);background:var(--b1)}
+#counter{font-size:.75rem;color:var(--t3);font-variant-numeric:tabular-nums;min-width:38px;text-align:center}
+#progress{position:fixed;top:0;left:0;height:2px;background:rgba(255,255,255,.3);transition:width .4s var(--snappy);z-index:300}
+
+/* ── Type helpers ── */
+.label{font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:var(--t3);margin-bottom:.75rem}
+.h1{font-size:clamp(3rem,6vw,5rem);font-weight:800;letter-spacing:-.05em;line-height:1}
+.h2{font-size:clamp(1.8rem,3.5vw,3rem);font-weight:800;letter-spacing:-.04em;line-height:1.05}
+.h3{font-size:clamp(1rem,1.8vw,1.4rem);font-weight:700;letter-spacing:-.02em}
+.body{font-size:clamp(.85rem,1.3vw,1rem);color:var(--t2);line-height:1.65}
+.center{text-align:center;align-items:center}
+.muted{color:var(--t3)}
+
+/* ── Layout ── */
+.cols{display:grid;gap:2.5rem;width:100%;align-items:start}
+.cols-2{grid-template-columns:1fr 1fr}
+.cols-3{grid-template-columns:1fr 1fr 1fr}
+.stack{display:flex;flex-direction:column;gap:.65rem}
+.row{display:flex;align-items:center;gap:.65rem}
+
+/* ── Cards ── */
+.card{background:var(--s0);border:1px solid var(--b1);border-radius:12px;padding:1.1rem 1.3rem}
+.card-sm{padding:.75rem .95rem;border-radius:10px}
+
+/* ── Code ── */
+.code{
+  background:var(--s1);border:1px solid var(--b1);border-radius:8px;
+  padding:.85rem 1rem;font-family:'SF Mono','Fira Code',monospace;
+  font-size:clamp(.66rem,1vw,.8rem);color:#b0bec5;line-height:1.75;
+  overflow:hidden;white-space:pre
+}
+.kw{color:#bb86fc}.fn{color:#82aaff}.str{color:#c3e88d}.cm{color:#546e7a}.hl{color:#ffcb6b}
+
+/* ── Tags ── */
+.tag{display:inline-flex;align-items:center;background:var(--s2);border:1px solid var(--b1);border-radius:99px;padding:.2rem .65rem;font-size:.75rem;font-weight:500}
+.tag-g{background:rgba(74,222,128,.1);border-color:rgba(74,222,128,.25);color:var(--green)}
+.tag-a{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.25);color:var(--amber)}
+.tag-b{background:rgba(96,165,250,.1);border-color:rgba(96,165,250,.25);color:var(--blue)}
+.tag-p{background:rgba(196,181,253,.1);border-color:rgba(196,181,253,.25);color:var(--purple)}
+
+/* ── Steps ── */
+.steps{display:flex;flex-direction:column;gap:.75rem;width:100%}
+.step{display:flex;align-items:flex-start;gap:.9rem}
+.step-n{width:26px;height:26px;border-radius:50%;flex-shrink:0;background:var(--s2);border:1px solid var(--b2);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:var(--t2);margin-top:.1em}
+.step-t{font-size:.92rem;font-weight:700;margin-bottom:.15rem}
+.step-d{font-size:.78rem;color:var(--t3);line-height:1.5}
+
+/* ── Table ── */
+.tbl{width:100%;border-collapse:collapse;font-size:clamp(.7rem,1vw,.84rem)}
+.tbl th{text-align:left;color:var(--t3);font-weight:600;font-size:.65rem;text-transform:uppercase;letter-spacing:.09em;padding:.38rem .65rem;border-bottom:1px solid var(--b1)}
+.tbl td{padding:.48rem .65rem;border-bottom:1px solid rgba(255,255,255,.035);color:var(--t2);vertical-align:top}
+.tbl td:first-child{color:var(--t1);font-weight:500}
+.g{color:var(--green)}.a{color:var(--amber)}.r{color:#f87171}
+
+/* ── Stats ── */
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.85rem;width:100%}
+.stat{background:var(--s0);border:1px solid var(--b1);border-radius:12px;padding:1.1rem 1.3rem}
+.stat-n{font-size:2rem;font-weight:800;letter-spacing:-.04em;color:#fff}
+.stat-l{font-size:.72rem;color:var(--t3);margin-top:.12rem;line-height:1.4}
+
+/* ── Cat chips ── */
+.cat-row{display:flex;gap:.55rem;flex-wrap:wrap}
+.cat-chip{display:flex;align-items:center;gap:.35rem;border-radius:10px;padding:.55rem .9rem;font-size:.8rem;font-weight:600}
+
+/* ── Route rows ── */
+.route{display:flex;align-items:baseline;gap:.55rem;font-size:.77rem}
+.method{font-family:monospace;font-size:.66rem;font-weight:700;border-radius:4px;padding:.09rem .38rem;flex-shrink:0}
+.get{background:rgba(96,165,250,.15);color:#60a5fa}
+.post{background:rgba(74,222,128,.15);color:#4ade80}
+.ws{background:rgba(196,181,253,.15);color:#c4b5fd}
+.rpath{font-family:monospace;color:var(--t1);font-size:.77rem}
+.rdesc{color:var(--t3);font-size:.74rem}
+
+/* ── Arch boxes ── */
+.arch{display:flex;align-items:center;gap:.5rem;justify-content:center;flex-wrap:wrap}
+.box{background:var(--s1);border:1px solid var(--b2);border-radius:9px;padding:.6rem 1rem;text-align:center;font-size:.82rem;font-weight:600}
+.arr{color:var(--t3);font-size:1.1rem}
+
+/* ── AI feature cards ── */
+.ai-feature{background:var(--s0);border:1px solid var(--b1);border-radius:12px;padding:1rem 1.2rem;border-left:2px solid var(--purple)}
+.ai-num{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--purple);margin-bottom:.35rem}
+.ai-title{font-size:.92rem;font-weight:700;margin-bottom:.2rem}
+.ai-desc{font-size:.76rem;color:var(--t3);line-height:1.5}
+
+hr{border:none;border-top:1px solid var(--b1);margin:.6rem 0}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="deck">
+
+<!-- ══ 1. TITLE ══ -->
+<section class="slide active center" data-notes="Start by introducing yourself. Pause for a second after saying the name — let the logo breathe. Then give the one-liner and move on quickly. Don't over-explain on slide one.">
+  <div style="font-size:2.8rem;margin-bottom:1rem">⚡</div>
+  <div class="h1">Duo Queue</div>
+  <p class="body" style="margin-top:.9rem;max-width:500px;text-align:center">Real-time campus social coordination for Purdue University</p>
+  <div style="display:flex;gap:.45rem;justify-content:center;margin-top:1.5rem;flex-wrap:wrap">
+    <span class="tag">FastAPI</span><span class="tag">WebSockets</span>
+    <span class="tag">SQLAlchemy</span><span class="tag">Claude AI</span><span class="tag">Railway</span>
+  </div>
+</section>
+
+<!-- ══ 2. PROBLEM ══ -->
+<section class="slide" data-notes="Set the scene. Everyone in this room has been there — you want to go to the gym, grab food, or study, but everyone's busy or you don't want to blast a group chat. The friction of finding a spontaneous activity partner is real. Pause on the quote. Let it land.">
+  <div style="max-width:800px;width:100%">
+    <div class="label">The Problem</div>
+    <div class="h2" style="margin-bottom:1.4rem">"You want to hit the gym.<br>Your roommate's busy.<br>GroupMe is noise."</div>
+    <div class="cols cols-3" style="gap:.85rem">
+      <div class="card card-sm">
+        <div style="font-size:1.2rem;margin-bottom:.4rem">📱</div>
+        <div style="font-weight:700;font-size:.85rem;margin-bottom:.2rem">Group chats = friction</div>
+        <div class="muted" style="font-size:.76rem">Posting to 200 people for a gym buddy feels weird</div>
+      </div>
+      <div class="card card-sm">
+        <div style="font-size:1.2rem;margin-bottom:.4rem">⏳</div>
+        <div style="font-weight:700;font-size:.85rem;margin-bottom:.2rem">No "right now" signal</div>
+        <div class="muted" style="font-size:.76rem">No platform communicates spontaneous, time-sensitive intent</div>
+      </div>
+      <div class="card card-sm">
+        <div style="font-size:1.2rem;margin-bottom:.4rem">🔒</div>
+        <div style="font-weight:700;font-size:.85rem;margin-bottom:.2rem">Trust gap</div>
+        <div class="muted" style="font-size:.76rem">Meeting a stranger is different from meeting a fellow Boilermaker</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3. SOLUTION ══ -->
+<section class="slide" data-notes="Walk through each step clearly. Emphasize the 30-minute TTL — that's what creates urgency and keeps the feed clean. The key insight is that posts are ephemeral by design. No permanent record, no follower counts, no pressure. Just real people doing things right now.">
+  <div style="max-width:720px;width:100%">
+    <div class="label">The Solution</div>
+    <div class="h2" style="margin-bottom:1.5rem">An ephemeral activity feed</div>
+    <div class="steps">
+      <div class="step"><div class="step-n">1</div><div><div class="step-t">Post what you want to do</div><div class="step-d">Pick a category, write one sentence. Post vanishes in 30 minutes.</div></div></div>
+      <div class="step"><div class="step-n">2</div><div><div class="step-t">Others see it live via WebSocket</div><div class="step-d">No refresh. The feed updates in real-time for everyone on campus.</div></div></div>
+      <div class="step"><div class="step-n">3</div><div><div class="step-t">Someone joins → private chat opens instantly</div><div class="step-d">One click creates a direct chat between poster and joiner.</div></div></div>
+      <div class="step"><div class="step-n">4</div><div><div class="step-t">Go do the thing</div><div class="step-d">No followers, no likes, no permanent history. Just people, right now.</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 4. DEMO ══ -->
+<section class="slide center" data-notes="Switch to the browser now. Open http://localhost:8000. Walk through: (1) Login with a Purdue email — show the OTP code appear in terminal in DEV MODE. (2) Pick a username. (3) Create a post — show the 'Surprise me' AI button, then type something and pause so the ghost text completion appears. Hit Tab to accept it. (4) Open a second incognito window, log in as a different user, join the post. (5) Show the AI icebreaker appear in the chat. (6) Send a message, show it appear live in the other window. Come back to slides when done.">
+  <div style="font-size:3rem;margin-bottom:1.2rem">🖥️</div>
+  <div class="h2">Live Demo</div>
+  <p class="body" style="margin-top:.7rem;text-align:center">
+    <a href="http://localhost:8000" style="color:var(--green);text-decoration:underline;font-size:1rem" target="_blank">localhost:8000</a>
+  </p>
+  <div style="margin-top:1.8rem;display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center">
+    <span class="tag">Login with @purdue.edu</span>
+    <span class="tag">Create a post</span>
+    <span class="tag">AI ghost text</span>
+    <span class="tag">Join from incognito</span>
+    <span class="tag">AI icebreaker</span>
+    <span class="tag">Live chat</span>
+  </div>
+</section>
+
+<!-- ══ 5. TECH STACK ══ -->
+<section class="slide" data-notes="Highlight the deliberate choices. FastAPI because it's async-native and WebSocket support is built in. SQLAlchemy because it handles both SQLite locally and PostgreSQL in production with zero code changes. No frontend framework — everything is Jinja2 server-rendered with vanilla JS on top. Zero npm. This was a conscious choice to keep the stack small and fast.">
+  <div style="max-width:820px;width:100%">
+    <div class="label">Tech Stack</div>
+    <div class="h2" style="margin-bottom:1.4rem">Deliberately minimal</div>
+    <div class="cols cols-2">
+      <div class="stack">
+        <div class="muted" style="font-size:.67rem;text-transform:uppercase;letter-spacing:.1em">Backend</div>
+        <div class="card card-sm row"><span style="font-size:.95rem">🐍</span><div><strong>Python 3.14 + FastAPI</strong><div class="muted" style="font-size:.74rem">ASGI, async/await, dependency injection</div></div></div>
+        <div class="card card-sm row"><span style="font-size:.95rem">🗄️</span><div><strong>SQLAlchemy ORM</strong><div class="muted" style="font-size:.74rem">SQLite dev → PostgreSQL prod, zero code change</div></div></div>
+        <div class="card card-sm row"><span style="font-size:.95rem">🔌</span><div><strong>Starlette WebSockets</strong><div class="muted" style="font-size:.74rem">Native to FastAPI — no extra library</div></div></div>
+        <div class="card card-sm row"><span style="font-size:.95rem">🤖</span><div><strong>Claude AI (Anthropic)</strong><div class="muted" style="font-size:.74rem">Haiku for speed, streaming SSE</div></div></div>
+      </div>
+      <div class="stack">
+        <div class="muted" style="font-size:.67rem;text-transform:uppercase;letter-spacing:.1em">Frontend + Infra</div>
+        <div class="card card-sm row"><span style="font-size:.95rem">📄</span><div><strong>Jinja2 templates</strong><div class="muted" style="font-size:.74rem">Server-rendered — no React, no npm</div></div></div>
+        <div class="card card-sm row"><span style="font-size:.95rem">🎨</span><div><strong>Vanilla JS + CSS</strong><div class="muted" style="font-size:.74rem">Spring animations, ripples, streaming fetch</div></div></div>
+        <div class="card card-sm row"><span style="font-size:.95rem">🚂</span><div><strong>Railway</strong><div class="muted" style="font-size:.74rem">Deploy, PostgreSQL addon, auto-restart</div></div></div>
+        <div class="card card-sm row"><span style="font-size:.95rem">📧</span><div><strong>SMTP (OTP delivery)</strong><div class="muted" style="font-size:.74rem">Passwordless auth via email</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 6. ARCHITECTURE ══ -->
+<section class="slide" data-notes="There are two separate flows. HTTP is for page loads — browser hits FastAPI, which queries the DB via SQLAlchemy, Jinja2 renders HTML, sends it back. WebSocket is persistent — when you create a post, FastAPI calls WSManager which pushes a JSON event to every connected feed viewer simultaneously. No polling. The WSManager is just a class in memory holding two data structures: a list of feed connections and a dict mapping room IDs to chat connections.">
+  <div style="max-width:820px;width:100%">
+    <div class="label">Architecture</div>
+    <div class="h2" style="margin-bottom:1.5rem">Two flows: HTTP + WebSocket</div>
+    <div class="stack" style="gap:1.1rem">
+      <div>
+        <div class="muted" style="font-size:.65rem;text-transform:uppercase;letter-spacing:.09em;margin-bottom:.5rem">Page requests</div>
+        <div class="arch">
+          <div class="box">🌐 Browser</div><div class="arr">→</div>
+          <div class="box">FastAPI route</div><div class="arr">→</div>
+          <div class="box">SQLAlchemy</div><div class="arr">→</div>
+          <div class="box">SQLite / Postgres</div>
+        </div>
+      </div>
+      <hr>
+      <div>
+        <div class="muted" style="font-size:.65rem;text-transform:uppercase;letter-spacing:.09em;margin-bottom:.5rem">Real-time events</div>
+        <div class="arch">
+          <div class="box">All feed viewers</div><div class="arr">⟵</div>
+          <div class="box" style="border-color:rgba(196,181,253,.35)">WSManager<br><span style="font-size:.68rem;color:var(--t3);font-weight:400">feed_clients[ ]</span></div><div class="arr">⟵</div>
+          <div class="box">POST /post<br><span style="font-size:.68rem;color:var(--t3);font-weight:400">broadcast_post()</span></div>
+        </div>
+        <div class="arch" style="margin-top:.55rem">
+          <div class="box">Chat participants</div><div class="arr">⟵</div>
+          <div class="box" style="border-color:rgba(196,181,253,.35)">WSManager<br><span style="font-size:.68rem;color:var(--t3);font-weight:400">chat_rooms{id:[ ]}</span></div><div class="arr">⟵</div>
+          <div class="box">/ws/chat/{id}<br><span style="font-size:.68rem;color:var(--t3);font-weight:400">broadcast_msg()</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 7. AUTH + SECURITY ══ -->
+<section class="slide" data-notes="The auth model is intentionally simple and strong. No passwords means no password database to breach. The domain check is server-side only — you can't fake it from the client. OTP codes are single-use, expire in 10 minutes, and you can only request a new one every 60 seconds so you can't brute-force them. Sessions are signed with itsdangerous so they can't be tampered with. The WebSocket security fix is worth highlighting — before our audit, the chat handler trusted user_id from the client payload which would have allowed full impersonation.">
+  <div style="max-width:820px;width:100%">
+    <div class="label">Auth + Security</div>
+    <div class="h2" style="margin-bottom:1.3rem">Passwordless. Zero stored credentials.</div>
+    <div class="cols cols-2">
+      <div class="steps" style="gap:.6rem">
+        <div class="step"><div class="step-n">1</div><div><div class="step-t">@purdue.edu enforcement</div><div class="step-d">Domain check is server-side only. No workaround.</div></div></div>
+        <div class="step"><div class="step-n">2</div><div><div class="step-t">60s OTP rate limit</div><div class="step-d">Can't spam or brute-force codes. Single-use, 10-min TTL.</div></div></div>
+        <div class="step"><div class="step-n">3</div><div><div class="step-t">itsdangerous session cookie</div><div class="step-d">Cryptographically signed. Tamper-evident.</div></div></div>
+        <div class="step"><div class="step-n">4</div><div><div class="step-t">WS auth from session, not payload</div><div class="step-d">Fixed: chat handler no longer trusts client-sent user_id.</div></div></div>
+      </div>
+      <div class="stack">
+        <table class="tbl">
+          <thead><tr><th>Threat</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Non-Purdue users</td><td class="g">✓ blocked</td></tr>
+            <tr><td>OTP brute force</td><td class="g">✓ rate limited</td></tr>
+            <tr><td>WS impersonation</td><td class="g">✓ fixed</td></tr>
+            <tr><td>XSS via post content</td><td class="g">✓ escaped</td></tr>
+            <tr><td>Post spam</td><td class="g">✓ 1 active max</td></tr>
+            <tr><td>Invalid categories</td><td class="g">✓ allowlisted</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 8. REAL-TIME ══ -->
+<section class="slide" data-notes="The WebSocket system is two separate things: a feed channel and per-chat rooms. When someone creates a post, FastAPI fires broadcast_post() which pushes JSON to every browser with the feed open — they see the card animate in without refreshing. When someone joins, the post author gets a notification chip and toast in real-time. The client has exponential backoff reconnect, so if the connection drops it quietly reconnects. The live green dot in the nav is how users know they're live.">
+  <div style="max-width:820px;width:100%">
+    <div class="label">Real-time</div>
+    <div class="h2" style="margin-bottom:1.3rem">WebSockets — two channels</div>
+    <div class="cols cols-2">
+      <div class="stack">
+        <div class="card">
+          <div style="font-weight:700;font-size:.85rem;margin-bottom:.5rem;color:var(--purple)">Feed channel</div>
+          <div class="muted" style="font-size:.78rem;line-height:1.65">
+            Every user on the feed page holds an open WS connection.<br><br>
+            <strong>new_post</strong> event → card animates in for everyone.<br>
+            <strong>join_update</strong> event → count bumps, joiner chip appears for post author.
+          </div>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;font-size:.85rem;margin-bottom:.5rem;color:var(--blue)">Chat rooms</div>
+          <div class="muted" style="font-size:.78rem;line-height:1.65">
+            Each Connection has its own room. Only the poster + joiner can connect (verified from session).<br><br>
+            Messages persist to DB and broadcast to both participants.
+          </div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="code"><span class="kw">class</span> <span class="fn">WSManager</span>:
+  feed_clients: <span class="hl">list</span>[WebSocket]
+  chat_rooms: <span class="hl">dict</span>[int, list[WebSocket]]
+
+  <span class="kw">async def</span> <span class="fn">broadcast_post</span>(data):
+    <span class="cm"># → all feed viewers</span>
+    <span class="cm"># auto-prunes dead sockets</span>
+
+  <span class="kw">async def</span> <span class="fn">broadcast_msg</span>(room, msg):
+    <span class="cm"># → chat room participants</span></div>
+        <div class="card card-sm">
+          <div style="font-size:.78rem;color:var(--t2);line-height:1.6"><strong>Client resilience:</strong> exponential backoff reconnect (1.5s → 30s), 25s keep-alive ping, input disabled while disconnected.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 9. AI FEATURES ══ -->
+<section class="slide" data-notes="This is where it gets fun. We have four distinct AI integrations using Claude. Ghost text is the most impressive to watch — as you type your post, Claude haiku streams a completion character by character in gray ghost text. Hit Tab to accept. Surprise me is a one-shot call that fills in both category and content based on time of day, day of week, and what's currently trending on the feed. The icebreaker fires as soon as a new chat opens — Claude reads the post topic and writes a natural opening line. Match scores load async after the page — one batch Claude call scores all visible posts 1-100 based on your join history.">
+  <div style="max-width:820px;width:100%">
+    <div class="label">AI Features — powered by Claude</div>
+    <div class="h2" style="margin-bottom:1.3rem">Four integrations. Zero gimmicks.</div>
+    <div class="cols cols-2" style="gap:.85rem">
+      <div class="ai-feature">
+        <div class="ai-num">01 · Ghost text completion</div>
+        <div class="ai-title">Types alongside you</div>
+        <div class="ai-desc">Claude streams a post completion in real-time as you type. Tab to accept. Context-aware: knows your category + time of day.</div>
+      </div>
+      <div class="ai-feature">
+        <div class="ai-num">02 · Surprise me</div>
+        <div class="ai-title">One-click post generation</div>
+        <div class="ai-desc">Claude picks a category AND writes the post based on trending campus activity, time, and day of week.</div>
+      </div>
+      <div class="ai-feature">
+        <div class="ai-num">03 · Chat icebreaker</div>
+        <div class="ai-title">Kills the awkward "uh hi"</div>
+        <div class="ai-desc">When a new chat opens, Claude generates a natural opening line specific to the activity. One click to send it.</div>
+      </div>
+      <div class="ai-feature">
+        <div class="ai-num">04 · Match scores</div>
+        <div class="ai-title">Feed that knows you</div>
+        <div class="ai-desc">Posts show a % match badge. Claude scores them against your join history in a single batch call after page load.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 10. BY THE NUMBERS ══ -->
+<section class="slide center" data-notes="Keep this quick. The numbers tell the story — 30-minute TTL is the core design decision that makes everything else work. 40k potential users on day one because it's Purdue-only. Zero passwords is a security AND UX win. No frontend framework means faster loads and no build step.">
+  <div style="max-width:760px;width:100%">
+    <div class="label" style="text-align:center">By the numbers</div>
+    <div class="h2" style="text-align:center;margin-bottom:1.5rem">Built lean. Ready to scale.</div>
+    <div class="stat-grid">
+      <div class="stat"><div class="stat-n">30m</div><div class="stat-l">Post TTL — creates urgency, keeps feed clean</div></div>
+      <div class="stat"><div class="stat-n">~40k</div><div class="stat-l">Purdue students — all eligible users on launch day</div></div>
+      <div class="stat"><div class="stat-n">0</div><div class="stat-l">Passwords stored — fully OTP-based</div></div>
+      <div class="stat"><div class="stat-n">4</div><div class="stat-l">AI integrations using Claude haiku</div></div>
+      <div class="stat"><div class="stat-n">12</div><div class="stat-l">API routes total — nothing bloated</div></div>
+      <div class="stat"><div class="stat-n">0</div><div class="stat-l">Frontend dependencies — vanilla JS only</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 11. WHAT'S NEXT ══ -->
+<section class="slide" data-notes="End on ambition. Push notifications are the obvious next step — right now you have to have the tab open. Group posts open up team sports and study groups. The multi-campus expansion is basically free since the domain check is a config variable. The native app would just be a React Native shell around the same FastAPI backend.">
+  <div style="max-width:780px;width:100%">
+    <div class="label">What's next</div>
+    <div class="h2" style="margin-bottom:1.4rem">The roadmap</div>
+    <div class="cols cols-2" style="gap:.85rem">
+      <div class="stack">
+        <div class="card card-sm"><strong>Push notifications</strong><div class="muted" style="font-size:.75rem">Web Push so you get notified when someone joins — even with the tab closed</div></div>
+        <div class="card card-sm"><strong>Group posts (3+ people)</strong><div class="muted" style="font-size:.75rem">Multi-person chats for pickup basketball, study groups, group dinners</div></div>
+        <div class="card card-sm"><strong>Post reactions</strong><div class="muted" style="font-size:.75rem">Quick hype button — signal interest without fully committing</div></div>
+      </div>
+      <div class="stack">
+        <div class="card card-sm"><strong>Map view</strong><div class="muted" style="font-size:.75rem">See posts pinned to locations on the Purdue campus map</div></div>
+        <div class="card card-sm"><strong>Multi-campus expansion</strong><div class="muted" style="font-size:.75rem">Domain is a config variable — IU, Notre Dame, etc. is trivial to add</div></div>
+        <div class="card card-sm"><strong>Native app</strong><div class="muted" style="font-size:.75rem">React Native shell — same FastAPI backend, no rewrite needed</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 12. Q&A ══ -->
+<section class="slide center" data-notes="Thank the audience. Invite questions. If someone asks about scaling — SQLAlchemy connection pooling + Railway autoscaling handles a lot. If someone asks about moderation — it's on the roadmap, right now domain restriction + 30min TTL limits abuse surface significantly. If someone asks why not use Socket.io — Starlette WebSockets is built into FastAPI, no extra dependency needed.">
+  <div style="font-size:2.5rem;margin-bottom:1rem">⚡</div>
+  <div class="h1" style="margin-bottom:.7rem">Thanks</div>
+  <p class="body" style="max-width:460px;text-align:center">Questions?</p>
+  <div style="margin-top:1.8rem;display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap">
+    <span class="tag tag-g">Demo: localhost:8000</span>
+    <span class="tag tag-b">github.com/samyukthasyamsundar/duo-quo</span>
+  </div>
+</section>
+
+</div><!-- #deck -->
+
+<!-- Speaker notes panel -->
+<div id="notes">
+  <button id="notes-toggle" onclick="toggleNotes()">▲ NOTES</button>
+  <p id="notes-text"></p>
+</div>
+
+<!-- Nav -->
+<div id="nav">
+  <button onclick="go(cur-1)">←</button>
+  <span id="counter">1 / 12</span>
+  <button onclick="go(cur+1)">→</button>
+</div>
+
+<script>
+const slides = Array.from(document.querySelectorAll('.slide'));
+const total  = slides.length;
+let cur = 0;
+let notesOpen = true;
+
+function go(n) {
+  const next = Math.max(0, Math.min(total-1, n));
+  if (next === cur) return;
+  const prev = cur;                                           // capture before mutation
+  slides[prev].classList.add('exit');
+  setTimeout(() => slides[prev].classList.remove('exit','active'), 280);
+  cur = next;
+  slides[cur].classList.add('active');
+  document.getElementById('counter').textContent = `${cur+1} / ${total}`;
+  document.getElementById('progress').style.width = `${((cur+1)/total)*100}%`;
+  document.getElementById('notes-text').textContent = slides[cur].dataset.notes || '';
+}
+
+function toggleNotes() {
+  notesOpen = !notesOpen;
+  document.getElementById('notes').classList.toggle('open', notesOpen);
+  document.getElementById('notes-toggle').textContent = (notesOpen ? '▼' : '▲') + ' NOTES';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(cur+1)}
+  if (e.key==='ArrowLeft'){e.preventDefault();go(cur-1)}
+  if (e.key==='s'||e.key==='S') toggleNotes();
+});
+
+let tx=0;
+document.addEventListener('touchstart',e=>{tx=e.touches[0].clientX},{passive:true});
+document.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>50)go(dx<0?cur+1:cur-1)},{passive:true});
+
+// Init
+document.getElementById('progress').style.width=`${(1/total)*100}%`;
+document.getElementById('notes-text').textContent = slides[0].dataset.notes || '';
+document.getElementById('notes').classList.add('open');
+document.getElementById('notes-toggle').textContent = '▼ NOTES';
+</script>
+</body>
+</html>

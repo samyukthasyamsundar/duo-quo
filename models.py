@@ -18,6 +18,7 @@ class OTPCode(Base):
     email      = Column(String, nullable=False, index=True)
     code       = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
     used       = Column(Boolean, default=False)
 
 class Post(Base):

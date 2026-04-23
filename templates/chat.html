@@ -21,10 +21,27 @@
       {% endif %}
     </div>
 
+    <!-- Reconnecting indicator (hidden when connected) -->
+    {% if not expired %}
+    <div class="chat-status-bar hidden" id="statusBar">
+      <span class="chat-status-dot" id="statusDot"></span>
+      <span id="statusText">Reconnecting…</span>
+    </div>
+    {% endif %}
+
     <!-- Messages -->
     <div class="chat-messages" id="chatMessages">
       {% if not messages %}
-      <div class="chat-empty">Say hi! 👋</div>
+      <div class="ai-icebreaker" id="aiIcebreaker">
+        <div class="ai-ice-header">
+          <span class="ai-badge">⚡ AI</span>
+          <span>Suggested opener</span>
+        </div>
+        <div class="ai-ice-text" id="icebreakerText">
+          <span class="ai-ice-loading">Generating…</span>
+        </div>
+        <button type="button" class="ai-ice-send" id="sendIcebreaker" style="display:none">Use this →</button>
+      </div>
       {% endif %}
       {% for msg in messages %}
       <div class="msg {% if msg.user_id == user.id %}msg--mine{% else %}msg--theirs{% endif %}">
@@ -60,30 +77,59 @@ const CONN_ID  = {{ conn.id }};
 const USER_ID  = {{ user.id }};
 const USERNAME = {{ user.username | tojson }};
 
-const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-const ws = new WebSocket(`${proto}://${location.host}/ws/chat/${CONN_ID}`);
-
 const messagesEl = document.getElementById('chatMessages');
 const input      = document.getElementById('msgInput');
 const sendBtn    = document.getElementById('sendBtn');
+const statusBar  = document.getElementById('statusBar');
+const statusDot  = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
 
 function scrollBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 scrollBottom();
 
-ws.addEventListener('message', e => {
-  const data = JSON.parse(e.data);
-  if (data.type !== 'message') return;
-  appendMsg(data.username, data.content, data.time, data.user_id === USER_ID);
-});
+// ── WebSocket with auto-reconnect ─────────────────────────────────────────
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+let ws, reconnectDelay = 1500;
+
+function connectChat() {
+  ws = new WebSocket(`${proto}://${location.host}/ws/chat/${CONN_ID}`);
+
+  ws.addEventListener('open', () => {
+    statusBar.classList.add('hidden');
+    statusDot.classList.add('ok');
+    statusText.textContent = 'Connected';
+    input.disabled = false;
+    sendBtn.disabled = false;
+    reconnectDelay = 1500;
+  });
+
+  ws.addEventListener('close', () => {
+    statusBar.classList.remove('hidden');
+    statusDot.classList.remove('ok');
+    statusText.textContent = 'Reconnecting…';
+    input.disabled = true;
+    sendBtn.disabled = true;
+    setTimeout(connectChat, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, 20000);
+  });
+
+  ws.addEventListener('message', e => {
+    const data = JSON.parse(e.data);
+    if (data.type !== 'message') return;
+    appendMsg(data.username, data.content, data.time, data.user_id === USER_ID);
+  });
+}
+
+connectChat();
 
 function appendMsg(username, content, time, mine) {
   const empty = messagesEl.querySelector('.chat-empty');
   if (empty) empty.remove();
 
   const div = document.createElement('div');
-  div.className = 'msg ' + (mine ? 'msg--mine' : 'msg--theirs');
+  div.className = `msg ${mine ? 'msg--mine msg--new-mine' : 'msg--theirs msg--new-theirs'}`;
   div.innerHTML = `
     <div class="msg-bubble">${escHtml(content)}</div>
     <div class="msg-meta">@${escHtml(username)} · ${time}</div>`;
@@ -93,25 +139,79 @@ function appendMsg(username, content, time, mine) {
 
 function send() {
   const content = input.value.trim();
-  if (!content || ws.readyState !== 1) return;
+  if (!content || ws?.readyState !== 1) return;
   ws.send(JSON.stringify({ user_id: USER_ID, username: USERNAME, content }));
   input.value = '';
 }
 
 sendBtn.addEventListener('click', send);
-input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// ── AI Icebreaker ─────────────────────────────────────────────────────────
+const iceBreakerPanel = document.getElementById('aiIcebreaker');
+if (iceBreakerPanel) {
+  (async () => {
+    try {
+      const res  = await fetch('/api/ai/icebreaker', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          post_content:   {{ conn.post.content | tojson }},
+          category:       {{ conn.post.category | tojson }},
+          other_username: {{ other_user.username | tojson }}
+        })
+      });
+      const data = await res.json();
+      const textEl = document.getElementById('icebreakerText');
+      const sendBtn= document.getElementById('sendIcebreaker');
+      if (data.icebreaker && textEl) {
+        textEl.textContent = data.icebreaker;
+        if (sendBtn) {
+          sendBtn.style.display = 'inline-flex';
+          sendBtn.addEventListener('click', () => {
+            input.value = data.icebreaker;
+            input.focus();
+            iceBreakerPanel.style.opacity = '0';
+            iceBreakerPanel.style.transform = 'scale(.95)';
+            setTimeout(() => iceBreakerPanel.remove(), 250);
+          });
+        }
+      } else {
+        iceBreakerPanel.remove();
+      }
+    } catch {
+      iceBreakerPanel.remove();
+    }
+  })();
 }
 
-// Countdown
+// Ripple on send button
+document.addEventListener('pointerdown', e => {
+  const btn = e.target.closest('.btn-send, .btn-primary:not(:disabled)');
+  if (!btn) return;
+  const r = document.createElement('span');
+  r.className = 'ripple';
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height) * 2.4;
+  r.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX-rect.left-size/2}px;top:${e.clientY-rect.top-size/2}px`;
+  btn.appendChild(r);
+  r.addEventListener('animationend', () => r.remove(), { once: true });
+});
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Countdown timer ────────────────────────────────────────────────────────
 const timerEl = document.getElementById('chatTimer');
 function updateTimer() {
   if (!timerEl) return;
-  const exp = new Date(timerEl.dataset.expires + 'Z');
+  const raw  = timerEl.dataset.expires;
+  const exp  = new Date(raw.endsWith('Z') ? raw : raw + 'Z');
   const diff = Math.max(0, Math.floor((exp - Date.now()) / 60000));
   timerEl.textContent = diff + 'm left';
+  timerEl.classList.toggle('post-timer--urgent', diff <= 5);
   if (diff === 0) location.reload();
 }
 setInterval(updateTimer, 30000);

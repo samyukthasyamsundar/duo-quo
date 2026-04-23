@@ -6,5 +6,6 @@ jinja2
 python-multipart
 python-dotenv
 itsdangerous
-resend
 websockets
+anthropic
+resend

@@ -1,6 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Pick a Username – Duo Queue{% endblock %}
 {% block content %}
+
+<div class="auth-backdrop" aria-hidden="true">
+  {% set row1 = ["🏋️ Gym in 20 min, anyone?", "📚 Studying CNIT 271 at WALC", "🍕 Dinner at Ford?", "🚶 Walk around campus", "✨ Anyone up for frisbee?", "🏋️ Rec center — leg day", "📚 CPS finals grind", "🍕 Late night Chipotle run", "🚶 Midnight walk?", "✨ Chess at WALC 3rd floor"] %}
+  {% set row2 = ["📚 Econ group study @ PMU", "🏋️ Open gym, co-rec", "🍕 Thai house, who's in?", "🚶 Bike ride around campus", "✨ Guitar jam session", "🏋️ Morning workout partner", "📚 CES 203 review session", "🍕 Breakfast at Windsor?", "🚶 Sunrise walk", "✨ Spikeball on the lawn"] %}
+  {% set row3 = ["🍕 Anyone grabbing Earhart?", "🏋️ Squash courts at 7pm", "📚 Library 4th floor, join me", "🚶 Engineering fountain loop", "✨ Hammocking at Slayter Hill", "🏋️ Swim laps at Corec", "📚 Stats 350 help session", "🍕 Cook together at the apt", "🚶 Evening run, 5k pace", "✨ Volleyball on the lawn"] %}
+  <div class="backdrop-row" style="--speed:44s">
+    {% for t in row1 %}<span>{{ t }}</span>{% endfor %}
+    {% for t in row1 %}<span>{{ t }}</span>{% endfor %}
+  </div>
+  <div class="backdrop-row backdrop-row--rev" style="--speed:38s">
+    {% for t in row2 %}<span>{{ t }}</span>{% endfor %}
+    {% for t in row2 %}<span>{{ t }}</span>{% endfor %}
+  </div>
+  <div class="backdrop-row" style="--speed:50s">
+    {% for t in row3 %}<span>{{ t }}</span>{% endfor %}
+    {% for t in row3 %}<span>{{ t }}</span>{% endfor %}
+  </div>
+</div>
+
 <div class="auth-wrap">
   <div class="auth-card">
     <div class="auth-logo">
@@ -19,7 +38,7 @@
         <input type="text" name="username" value="{{ suggested }}"
                placeholder="boilermaker42" minlength="3" maxlength="30"
                required autofocus autocomplete="off" />
-        <span style="font-size:.78rem;color:var(--muted);">3–30 characters, shown on posts</span>
+        <span style="font-size:.78rem;color:var(--muted);">3–30 characters · letters, numbers, underscores only</span>
       </div>
       <button type="submit" class="btn-primary btn-full">Join Duo Queue →</button>
     </form>

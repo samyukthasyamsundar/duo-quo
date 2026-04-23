@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Duo Queue{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css" />
   {% block head %}{% endblock %}
@@ -17,6 +18,7 @@
       <span class="brand-text">Duo Queue</span>
     </a>
     <div class="nav-right">
+      <span id="live-dot" class="live-dot" title="Live feed"></span>
       <span class="nav-user">@{{ user.username }}</span>
       <a href="/logout" class="btn-ghost">Sign out</a>
     </div>
@@ -26,6 +28,8 @@
   <main class="main-content">
     {% block content %}{% endblock %}
   </main>
+
+  <div id="toast-container" class="toast-container"></div>
 
   {% block scripts %}{% endblock %}
 </body>

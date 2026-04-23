@@ -17,6 +17,7 @@
            class="cat-item {% if active_category == key %}active{% endif %}"
            style="--cat-color: {{ meta.color }}">
           <span class="cat-icon">{{ meta.icon }}</span> {{ meta.label }}
+          {% if category_counts.get(key) %}<span class="cat-count">{{ category_counts[key] }}</span>{% endif %}
         </a>
         {% endfor %}
       </nav>
@@ -31,6 +32,16 @@
 
   <!-- ── Feed ── -->
   <section class="feed-section">
+    <!-- Mobile category bar (hidden on desktop) -->
+    <div class="mobile-cats">
+      <a href="/" class="mobile-cat {% if not active_category %}active{% endif %}">🔥 All</a>
+      {% for key, meta in categories.items() %}
+      <a href="/?category={{ key }}"
+         class="mobile-cat {% if active_category == key %}active{% endif %}"
+         style="--cat-color: {{ meta.color }}">{{ meta.icon }} {{ meta.label }}{% if category_counts.get(key) %} <span style="opacity:.55;font-size:.72em">{{ category_counts[key] }}</span>{% endif %}</a>
+      {% endfor %}
+    </div>
+
     <div class="feed-header">
       <div>
         <h2 class="feed-title">
@@ -42,7 +53,11 @@
         </h2>
         <p class="feed-sub">Posts expire in 30 minutes · Real people, right now</p>
       </div>
+      {% if has_active_post %}
+      <button class="btn-primary" disabled title="You already have an active post">+ New Post</button>
+      {% else %}
       <button class="btn-primary" id="openPostBtn">+ New Post</button>
+      {% endif %}
     </div>
 
     <!-- Posts -->
@@ -60,10 +75,14 @@
       {% set meta = categories[p.category] %}
       <div class="post-card" data-id="{{ p.id }}" style="--cat-color: {{ meta.color }}">
         <div class="post-top">
-          <span class="cat-pill">{{ meta.icon }} {{ meta.label }}</span>
-          <span class="post-timer" data-expires="{{ p.expires_at.isoformat() }}">
-            {{ minutes_left(p.expires_at) }}m left
-          </span>
+          <span class="cat-pill" style="--cat-color: {{ meta.color }}" data-cat="{{ p.category }}">{{ meta.icon }} {{ meta.label }}</span>
+          <div class="post-top-right">
+            <span class="match-badge" id="mb-{{ p.id }}" style="opacity:0" title=""></span>
+            <span class="post-timer {% if minutes_left(p.expires_at) <= 5 %}post-timer--urgent{% endif %}"
+                  data-expires="{{ p.expires_at.isoformat() }}">
+              {{ minutes_left(p.expires_at) }}m left
+            </span>
+          </div>
         </div>
 
         <p class="post-content">{{ p.content }}</p>
@@ -72,8 +91,11 @@
           <span class="post-author">@{{ p.author.username }}</span>
           <div class="post-actions">
             {% if item.is_mine %}
-              <span class="post-join-count">{{ item.join_count }} joined</span>
-              <form method="post" action="/post/{{ p.id }}/delete" style="display:inline">
+              <span class="post-join-count" id="jcount-{{ p.id }}">
+                {{ item.join_count }} {{ 'joined' if item.join_count != 1 else 'joined' }}
+              </span>
+              <form method="post" action="/post/{{ p.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Remove this post?')">
                 <button type="submit" class="btn-delete" title="Remove post">✕</button>
               </form>
             {% elif item.already_joined %}
@@ -84,6 +106,22 @@
               </form>
             {% endif %}
           </div>
+        </div>
+
+        {% if item.is_mine and item.my_connections %}
+        <div class="joiners-row" id="joiners-{{ p.id }}">
+          {% for c in item.my_connections %}
+          <a href="/chat/{{ c.id }}" class="joiner-chip">💬 @{{ c.joiner.username }}</a>
+          {% endfor %}
+        </div>
+        {% elif item.is_mine %}
+        <div class="joiners-row joiners-row--empty" id="joiners-{{ p.id }}"></div>
+        {% endif %}
+
+        {% set pct = [minutes_left(p.expires_at) / 30 * 100, 100] | min | int %}
+        <div class="post-progress">
+          <div class="post-progress-fill {% if minutes_left(p.expires_at) <= 5 %}post-progress-fill--urgent{% endif %}"
+               style="width:{{ pct }}%" id="prog-{{ p.id }}"></div>
         </div>
       </div>
       {% endfor %}
@@ -96,6 +134,9 @@
   <div class="modal-card">
     <div class="modal-header">
       <h3>Post an Activity</h3>
+      <button type="button" class="btn-ai-suggest" id="aiSuggestBtn" title="Let AI pick for you">
+        <span id="aiSuggestIcon">✦</span> Surprise me
+      </button>
       <button class="modal-close" id="closePostBtn">✕</button>
     </div>
 
@@ -120,9 +161,13 @@
 
       <div class="field">
         <label>What's the plan? <span class="char-count" id="charCount">0/120</span></label>
-        <textarea name="content" id="postContent" rows="3"
-                  placeholder='e.g. "Gym in 20 min, anyone?" or "Studying CNIT 271 at WALC"'
-                  maxlength="120" required></textarea>
+        <div class="ta-wrap" id="taWrap">
+          <div class="ghost-layer" id="ghostLayer" aria-hidden="true"></div>
+          <textarea name="content" id="postContent" rows="3"
+                    placeholder='e.g. "Gym in 20 min, anyone?" or "Studying CNIT 271 at WALC"'
+                    maxlength="120" required></textarea>
+        </div>
+        <div class="ai-tab-hint" id="aiTabHint" style="display:none">⚡ Tab to accept</div>
       </div>
 
       <div class="geo-status" id="geoStatus"></div>
@@ -137,28 +182,62 @@
 
 {% block scripts %}
 <script>
-const REQUIRE_GEO = {{ 'true' if require_geo else 'false' }};
-const CAMPUS_BOUNDS = {{ campus_bounds | tojson }};
+const REQUIRE_GEO     = {{ 'true' if require_geo else 'false' }};
+const CAMPUS_BOUNDS   = {{ campus_bounds | tojson }};
 const CURRENT_USER_ID = {{ user.id }};
+
+// ── Stagger entrance ───────────────────────────────────────────────────────
+document.querySelectorAll('#postsGrid .post-card').forEach((card, i) => {
+  card.style.animationDelay = `${Math.min(i * 38, 280)}ms`;
+});
+
+// ── Ripple on buttons ──────────────────────────────────────────────────────
+document.addEventListener('pointerdown', e => {
+  const btn = e.target.closest('.btn-join, .btn-primary:not(:disabled), .btn-send');
+  if (!btn) return;
+  const r    = document.createElement('span');
+  r.className = 'ripple';
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height) * 2.4;
+  r.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX-rect.left-size/2}px;top:${e.clientY-rect.top-size/2}px`;
+  btn.appendChild(r);
+  r.addEventListener('animationend', () => r.remove(), { once: true });
+});
 
 // ── Modal ──────────────────────────────────────────────────────────────────
 const modal   = document.getElementById('postModal');
 const openBtn = document.getElementById('openPostBtn');
 const closeBtn= document.getElementById('closePostBtn');
 
-openBtn.addEventListener('click', () => {
+function openModal() {
   modal.classList.add('open');
   if (REQUIRE_GEO || navigator.geolocation) getLocation();
+  setTimeout(() => document.getElementById('postContent')?.focus(), 80);
+}
+function closeModal() { modal.classList.remove('open'); }
+
+if (openBtn) openBtn.addEventListener('click', openModal);
+closeBtn.addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (e.metaKey || e.ctrlKey) return;
+  if (e.key === 'n' || e.key === 'N') {
+    if (openBtn && !openBtn.disabled) openModal();
+  }
+  if (e.key === 'Escape') closeModal();
 });
-closeBtn.addEventListener('click', () => modal.classList.remove('open'));
-modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
 
 // ── Char counter ───────────────────────────────────────────────────────────
 const ta = document.getElementById('postContent');
 const cc = document.getElementById('charCount');
 ta.addEventListener('input', () => {
-  cc.textContent = `${ta.value.length}/120`;
-  cc.style.color = ta.value.length > 100 ? '#ef4444' : '';
+  const len = ta.value.length;
+  cc.textContent = `${len}/120`;
+  cc.style.color = len > 100 ? '#f87171' : '';
 });
 
 // ── Geolocation ────────────────────────────────────────────────────────────
@@ -179,7 +258,9 @@ function getLocation() {
       status.innerHTML = '<span class="geo-err">❌ Must be on campus to post.</span>';
       document.getElementById('submitPost').disabled = true;
     } else {
-      status.innerHTML = '<span class="geo-ok">✅ On campus</span>';
+      status.innerHTML = onCampus
+        ? '<span class="geo-ok">📍 On campus</span>'
+        : '<span class="geo-warn">📍 Off campus</span>';
     }
   }, () => {
     if (REQUIRE_GEO) {
@@ -191,58 +272,272 @@ function getLocation() {
   });
 }
 
-// ── Live feed via WebSocket ────────────────────────────────────────────────
-const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-const ws = new WebSocket(`${proto}://${location.host}/ws/feed`);
-
-ws.addEventListener('message', e => {
-  const data = JSON.parse(e.data);
-  if (data.type !== 'new_post') return;
-  if (data.user_id === CURRENT_USER_ID) return; // already shown via redirect
-
-  const grid = document.getElementById('postsGrid');
-  const empty = grid.querySelector('.empty-state');
-  if (empty) empty.remove();
-
-  const card = document.createElement('div');
-  card.className = 'post-card post-card--new';
-  card.style.setProperty('--cat-color', data.color);
-  card.innerHTML = `
-    <div class="post-top">
-      <span class="cat-pill">
-        ${data.icon} ${data.label}
-      </span>
-      <span class="post-timer">${data.minutes_left}m left</span>
-    </div>
-    <p class="post-content">${escHtml(data.content)}</p>
-    <div class="post-bottom">
-      <span class="post-author">@${escHtml(data.username)}</span>
-      <div class="post-actions">
-        <form method="post" action="/post/${data.id}/join" style="display:inline">
-          <button type="submit" class="btn-join">Join →</button>
-        </form>
-      </div>
-    </div>`;
-  grid.prepend(card);
-  setTimeout(() => card.classList.remove('post-card--new'), 600);
-});
-
-// keep-alive ping every 25s
-setInterval(() => { if (ws.readyState === 1) ws.send('ping'); }, 25000);
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(message, link) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  if (link) {
+    toast.innerHTML = `<a href="${escHtml(link)}" class="toast-link">${escHtml(message)}</a>`;
+  } else {
+    toast.textContent = message;
+  }
+  container.appendChild(toast);
+  requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('toast--show')));
+  setTimeout(() => {
+    toast.classList.remove('toast--show');
+    setTimeout(() => toast.remove(), 350);
+  }, 5000);
 }
 
-// ── Countdown timers ───────────────────────────────────────────────────────
-function updateTimers() {
-  document.querySelectorAll('.post-timer[data-expires]').forEach(el => {
-    const exp = new Date(el.dataset.expires + 'Z');
-    const diff = Math.max(0, Math.floor((exp - Date.now()) / 60000));
-    el.textContent = diff + 'm left';
-    if (diff === 0) el.closest('.post-card')?.remove();
+// ── WebSocket feed ─────────────────────────────────────────────────────────
+const proto   = location.protocol === 'https:' ? 'wss' : 'ws';
+const liveDot = document.getElementById('live-dot');
+let ws, reconnectDelay = 1500;
+
+function connectFeed() {
+  ws = new WebSocket(`${proto}://${location.host}/ws/feed`);
+  ws.addEventListener('open', () => {
+    liveDot?.classList.add('connected');
+    reconnectDelay = 1500;
+  });
+  ws.addEventListener('close', () => {
+    liveDot?.classList.remove('connected');
+    setTimeout(connectFeed, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+  });
+  ws.addEventListener('message', e => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === 'new_post') {
+      if (data.user_id === CURRENT_USER_ID) return;
+      const grid  = document.getElementById('postsGrid');
+      const empty = grid.querySelector('.empty-state');
+      if (empty) empty.remove();
+      const pct  = Math.min(data.minutes_left / 30 * 100, 100);
+      const card = document.createElement('div');
+      card.className = 'post-card post-card--new';
+      card.dataset.id = data.id;
+      card.style.setProperty('--cat-color', data.color);
+      card.innerHTML = `
+        <div class="post-top">
+          <span class="cat-pill" style="--cat-color:${data.color}">${data.icon} ${escHtml(data.label)}</span>
+          <span class="post-timer" data-expires="">${data.minutes_left}m left</span>
+        </div>
+        <p class="post-content">${escHtml(data.content)}</p>
+        <div class="post-bottom">
+          <span class="post-author">@${escHtml(data.username)}</span>
+          <div class="post-actions">
+            <form method="post" action="/post/${data.id}/join" style="display:inline">
+              <button type="submit" class="btn-join">Join →</button>
+            </form>
+          </div>
+        </div>
+        <div class="post-progress">
+          <div class="post-progress-fill" id="prog-${data.id}" style="width:${pct}%"></div>
+        </div>`;
+      grid.prepend(card);
+      return;
+    }
+
+    if (data.type === 'join_update') {
+      const card = document.querySelector(`.post-card[data-id="${data.post_id}"]`);
+      if (card) {
+        const countEl = card.querySelector('.post-join-count');
+        if (countEl) {
+          countEl.textContent = `${data.join_count} joined`;
+          countEl.classList.remove('count-bump');
+          void countEl.offsetWidth;
+          countEl.classList.add('count-bump');
+        }
+      }
+      if (data.author_id === CURRENT_USER_ID) {
+        let row = document.getElementById(`joiners-${data.post_id}`);
+        if (row?.classList.contains('joiners-row--empty')) row.classList.remove('joiners-row--empty');
+        if (!row && card) {
+          row = document.createElement('div');
+          row.className = 'joiners-row';
+          row.id = `joiners-${data.post_id}`;
+          card.insertBefore(row, card.querySelector('.post-progress'));
+        }
+        if (row) {
+          const chip = document.createElement('a');
+          chip.href = `/chat/${data.connection_id}`;
+          chip.className = 'joiner-chip joiner-chip--new';
+          chip.textContent = `💬 @${data.joiner_username}`;
+          row.appendChild(chip);
+        }
+        showToast(`⚡ @${data.joiner_username} wants to join! Open chat →`, `/chat/${data.connection_id}`);
+      }
+    }
   });
 }
-setInterval(updateTimers, 30000);
+
+connectFeed();
+setInterval(() => { if (ws?.readyState === 1) ws.send('ping'); }, 25000);
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Countdown timers + progress bars ──────────────────────────────────────
+function updateTimers() {
+  document.querySelectorAll('.post-timer[data-expires]').forEach(el => {
+    const raw = el.dataset.expires;
+    if (!raw) return;
+    const exp    = new Date(raw + (raw.endsWith('Z') ? '' : 'Z'));
+    const leftMs = Math.max(0, exp - Date.now());
+    const diff   = Math.floor(leftMs / 60000);
+
+    if (leftMs === 0) { el.closest('.post-card')?.remove(); return; }
+
+    el.textContent = diff === 0 ? '< 1m left' : diff + 'm left';
+    el.classList.toggle('post-timer--urgent', diff <= 5);
+
+    const card = el.closest('.post-card');
+    if (!card) return;
+    const fill = card.querySelector('.post-progress-fill');
+    if (fill) {
+      const pct = Math.min(leftMs / (30 * 60000) * 100, 100);
+      fill.style.width = pct + '%';
+      fill.classList.toggle('post-progress-fill--urgent', diff <= 5);
+    }
+  });
+}
+setInterval(updateTimers, 10000);
+
+// ── AI: Ghost-text completion ──────────────────────────────────────────────
+const ghost    = document.getElementById('ghostLayer');
+const aiHint   = document.getElementById('aiTabHint');
+let ghostTimer = null;
+let ghostComp  = '';
+let ghostReader= null;
+
+function getCategory() {
+  return document.querySelector('input[name="category"]:checked')?.value || 'other';
+}
+function setGhost(typed, comp) {
+  if (!ghost) return;
+  ghost.innerHTML = `<span class="ghost-typed">${escHtml(typed)}</span><span class="ghost-comp">${escHtml(comp)}</span>`;
+  if (aiHint) aiHint.style.display = comp ? 'block' : 'none';
+}
+function clearGhostState() {
+  ghostComp = '';
+  if (ghost) ghost.innerHTML = '';
+  if (aiHint) aiHint.style.display = 'none';
+  if (ghostReader) { ghostReader.cancel().catch(()=>{}); ghostReader = null; }
+}
+
+ta.addEventListener('input', () => {
+  const len = ta.value.length;
+  cc.textContent = `${len}/120`;
+  cc.style.color = len > 100 ? '#f87171' : '';
+  clearGhostState();
+  clearTimeout(ghostTimer);
+  if (len >= 10) ghostTimer = setTimeout(triggerCompletion, 550);
+});
+
+ta.addEventListener('keydown', e => {
+  if (e.key === 'Tab' && ghostComp) {
+    e.preventDefault();
+    ta.value = (ta.value + ghostComp).slice(0, 120);
+    cc.textContent = `${ta.value.length}/120`;
+    clearGhostState();
+  }
+});
+
+// Re-trigger on category change
+document.querySelectorAll('input[name="category"]').forEach(r => {
+  r.addEventListener('change', () => {
+    clearGhostState();
+    clearTimeout(ghostTimer);
+    if (ta.value.length >= 10) ghostTimer = setTimeout(triggerCompletion, 300);
+  });
+});
+
+async function triggerCompletion() {
+  const partial = ta.value;
+  if (!partial || partial.length < 10) return;
+  try {
+    const res = await fetch('/api/ai/complete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({category: getCategory(), partial})
+    });
+    if (!res.ok || !res.body) return;
+    ghostReader = res.body.getReader();
+    const dec = new TextDecoder();
+    let comp = '';
+    while (true) {
+      const {value, done} = await ghostReader.read();
+      if (done) break;
+      const chunk = dec.decode(value, {stream: true});
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const d = line.slice(6).trim();
+        if (d === '[DONE]') { ghostReader = null; return; }
+        try {
+          const {t} = JSON.parse(d);
+          if (t && ta.value === partial) {
+            comp += t;
+            ghostComp = comp;
+            setGhost(partial, comp);
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+  ghostReader = null;
+}
+
+// ── AI: Surprise me ───────────────────────────────────────────────────────
+document.getElementById('aiSuggestBtn')?.addEventListener('click', async () => {
+  const btn  = document.getElementById('aiSuggestBtn');
+  const icon = document.getElementById('aiSuggestIcon');
+  btn.disabled = true;
+  icon.textContent = '…';
+  clearGhostState();
+  try {
+    const res  = await fetch('/api/ai/suggest', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    const data = await res.json();
+    if (data.category) {
+      const r = document.querySelector(`input[name="category"][value="${data.category}"]`);
+      if (r) r.checked = true;
+    }
+    if (data.content) {
+      ta.value = data.content;
+      cc.textContent = `${ta.value.length}/120`;
+    }
+  } catch {}
+  icon.textContent = '✦';
+  btn.disabled = false;
+});
+
+// ── AI: Match scores ───────────────────────────────────────────────────────
+async function loadMatchScores() {
+  const cards = Array.from(document.querySelectorAll('.post-card[data-id]'));
+  if (!cards.length) return;
+  const posts = cards.map(c => ({
+    id:       parseInt(c.dataset.id),
+    category: c.querySelector('[data-cat]')?.dataset.cat || 'other',
+    content:  c.querySelector('.post-content')?.textContent?.trim() || ''
+  }));
+  try {
+    const res  = await fetch('/api/ai/scores', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({posts})
+    });
+    const data = await res.json();
+    for (const [id, info] of Object.entries(data.scores || {})) {
+      const badge = document.getElementById(`mb-${id}`);
+      if (!badge) continue;
+      badge.textContent = `${info.score}%`;
+      badge.title       = info.why;
+      badge.style.color = info.score >= 80 ? '#4ade80' : info.score >= 55 ? '#f59e0b' : 'var(--t3)';
+      badge.style.opacity = '1';
+    }
+  } catch {}
+}
+setTimeout(loadMatchScores, 200);
 </script>
 {% endblock %}
